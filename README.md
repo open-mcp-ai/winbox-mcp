@@ -171,4 +171,4 @@ so it runs in CI on all three platforms.
 
 ## License
 
-Not yet chosen — it will match the rest of the open-mcp-ai organisation.
+MIT — see [LICENSE](LICENSE).

@@ -4,3 +4,9 @@
 
 # Windows PowerShell transcript / module artefacts
 *.transcript
+
+# Editor and OS droppings — a published repo should not carry either.
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp

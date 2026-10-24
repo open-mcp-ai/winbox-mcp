@@ -53,24 +53,29 @@ Chocolatey 2.7.4.
 
 ## Two operational traps worth knowing
 
-**A service inherits the PATH it started with.** After installing tools they
-were absent from a shell spawned by `termcp-relay`: machine PATH was correct,
-the running process was not, because a service captures its environment block
-once — at boot — and never looks again. Fixed in the relay rather than worked
-around here: `internal/sshserver/env_windows.go` now composes each session's
-PATH from the registry (machine value, then user value, expanded, deduped).
+**A service inherits its environment once, at boot.** After installing tools they
+were absent from a shell spawned by `termcp-relay`: machine PATH was correct, the
+running process was not. Fixed in the relay rather than worked around here, and
+fixed generally: `internal/sshserver/env_windows.go` now composes each session's
+whole environment block the way Windows composes one for a logon — machine
+entries over the inherited block, then the user's, `REG_EXPAND_SZ` expanded.
 
-The fix is verifiable without restarting anything, which is how it was checked.
-Append a directory to the machine PATH, then open two shells — one before the
-change, one after:
+PATH was the visible half. The quiet half is `PSModulePath` and every product
+home an installer writes: same bug, symptom is a module that will not load while
+its directory is plainly there.
 
-| | machine PATH has the entry | that shell's `$env:Path` has it |
+The fix is checkable without restarting anything, which is how it was checked.
+Add a machine variable, then open two shells — one before the change, one after:
+
+| | machine env has it | that shell's environment has it |
 | --- | --- | --- |
 | shell opened before the change | yes | no |
 | shell opened after the change | yes | **yes** |
+| shell opened after it was deleted | no | **no** |
 
-The relay's process start time is unchanged across both rows, so the second
-shell's PATH came from the registry read, not from a restart.
+The relay's process start time is unchanged across all three rows, so the later
+shells read the registry rather than inheriting a snapshot. The third row is the
+one that distinguishes rebuilding the block from patching one variable into it.
 
 **This host's firewall is off on all three profiles** (`Domain`, `Private`,
 `Public` all `enabled=false`, inbound default `NotConfigured`) while RDP, WinRM,

@@ -53,15 +53,24 @@ Chocolatey 2.7.4.
 
 ## Two operational traps worth knowing
 
-**A service inherits the PATH it started with.** After installing tools, they are
-absent from a shell spawned by `termcp-relay`, because the service captured its
-environment at boot. Machine PATH was correct; the running process was not.
-Refresh per session:
+**A service inherits the PATH it started with.** After installing tools they
+were absent from a shell spawned by `termcp-relay`: machine PATH was correct,
+the running process was not, because a service captures its environment block
+once — at boot — and never looks again. Fixed in the relay rather than worked
+around here: `internal/sshserver/env_windows.go` now composes each session's
+PATH from the registry (machine value, then user value, expanded, deduped).
 
-```powershell
-$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
-            [Environment]::GetEnvironmentVariable('Path','User')
-```
+The fix is verifiable without restarting anything, which is how it was checked.
+Append a directory to the machine PATH, then open two shells — one before the
+change, one after:
+
+| | machine PATH has the entry | that shell's `$env:Path` has it |
+| --- | --- | --- |
+| shell opened before the change | yes | no |
+| shell opened after the change | yes | **yes** |
+
+The relay's process start time is unchanged across both rows, so the second
+shell's PATH came from the registry read, not from a restart.
 
 **This host's firewall is off on all three profiles** (`Domain`, `Private`,
 `Public` all `enabled=false`, inbound default `NotConfigured`) while RDP, WinRM,
@@ -69,12 +78,15 @@ SMB and the relay's own SSH are listening on all interfaces. `security_posture`
 reports exactly that, which is why the tool exists: the exposure is not visible
 from any single service check.
 
-## Sessions dropped twice, during installs
+## Sessions dropped three times, cause still open
 
-Both interruptions happened while a Chocolatey install was running, and neither
-was a reboot (`LastBootUpTime` unchanged at 13:38 throughout). The relay's log
-shows authentication and port-forward lines with **no session-end record**, so
-the connection layer was cut, not the server:
+Three interruptions, none of them a reboot (`LastBootUpTime` unchanged at 13:38
+throughout). Two happened while a Chocolatey install was running — one of them
+with the install already detached, so a foreground process holding the pty does
+not explain it — and the third while nothing was happening on the host at all.
+
+The relay's log shows authentication and port-forward lines with **no session-end
+record**, so the connection layer was cut, not the server:
 
 ```
 15:11:39  password auth user=Administrator ok=true
@@ -83,8 +95,17 @@ the connection layer was cut, not the server:
 15:30:55  password auth user=Administrator ok=true
 ```
 
-The second install had already been detached, so "a foreground process holding
-the pty" does not explain it. Something kills the SSH connection during a
-long-running, I/O-heavy child process — worth watching before this host is used
-for unattended work. Workaround in the meantime: detach anything longer than a
-minute and poll a redirect file.
+What has been ruled out, and how:
+
+| hypothesis | test | result |
+| --- | --- | --- |
+| the relay restarted | process start time, log's "starting" lines | unchanged — ruled out |
+| the relay crashed | service state, log | Running throughout — ruled out |
+| out of memory | System event 2004 in the window | absent — ruled out |
+| the daemon exits when idle | 30 s idle timeout in `internal/daemon/idle.go`; two deliberate silences of 50 s and 100 s, sessions still running afterwards | ruled out at these durations |
+| TCP keepalive gives up on a silent link | client sets idle 30 s, interval 15 s, count 4 — about 90 s of unanswered probes | 100 s of silence did not kill the session — ruled out |
+
+What is left is that something outside both processes ends the connection. The
+practical answer is the same either way, and it is the shape unattended work
+should take regardless: **detach anything longer than a minute** and poll a
+redirect file, so a lost session costs a reconnect rather than the job.

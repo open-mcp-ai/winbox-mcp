@@ -10,3 +10,6 @@
 Thumbs.db
 desktop.ini
 *.swp
+
+# A macOS tarball carries one of these beside every file (COPYFILE_DISABLE=1 avoids it).
+._*

@@ -1,0 +1,6 @@
+# Local runs and captures; the server keeps no state of its own.
+*.log
+*.out
+
+# Windows PowerShell transcript / module artefacts
+*.transcript
